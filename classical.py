@@ -35,6 +35,6 @@ def classify_email(email_text):
 
     # Predict and convert to text label
     prediction = model.predict(email_features_combined)
-    result = "malicious" if prediction[0] == 1 else "safe"
+    probability = model.predict_proba(email_features_combined)[0][1]
 
-    return result
+    return prediction, probability
