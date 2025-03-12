@@ -1,3 +1,10 @@
 __pycache__
 
 env
+
+data/*
+!data/README.md
+models/*
+!models/README.md
+results/*
+!results/README.md
