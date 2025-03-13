@@ -7,3 +7,5 @@ beautifulsoup4
 scipy
 lightgbm
 streamlit
+paddleocr
+paddlepaddle
