@@ -9,3 +9,7 @@ lightgbm
 streamlit
 paddleocr
 paddlepaddle
+langchain
+langchain_community
+langchain-anthropic
+anthropic

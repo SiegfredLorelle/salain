@@ -1,3 +1,4 @@
+# app.py
 import streamlit as st
 from PIL import Image
 from scripts.classical import classify_email
@@ -7,6 +8,7 @@ from scripts.ocr import (
     process_file_upload, 
     process_camera_capture
 )
+from scripts.llm import generate_llm_explanation, get_fallback_explanation
 
 # Initialize minimal session state for tracking
 if 'extracted_text' not in st.session_state:
@@ -28,22 +30,44 @@ input_method = st.radio(
 )
 
 def analyze_email_content(text):
-    """Analyze email content and display results"""
+    """Analyze email content and display results with explanations"""
     if not text.strip():
         st.warning("Please enter text to analyze")
         return
         
     with st.spinner("Analyzing email content..."):
         try:
+            # Get classification and features
             prediction, confidence = classify_email(text)
+            features = extract_features(text)
             
-            # Display results
-            if prediction[0] == 1:
-                st.error(f"⚠️ Malicious Detected (Confidence: {confidence:.2%})")
-                st.write("Common red flags found:")
-                st.json(extract_features(text))
-            else:
-                st.success(f"✅ Safe Email (Confidence: {1-confidence:.2%})")
+            # Display classification results
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                if prediction[0] == 1:
+                    st.error(f"⚠️ Malicious Detected\n(Confidence: {confidence:.2%})")
+                else:
+                    st.success(f"✅ Safe Email\n(Confidence: {1-confidence:.2%})")
+            
+            with col2:
+                # Generate and display LLM explanation
+                try:
+                    explanation = generate_llm_explanation(
+                        text, 
+                        prediction[0], 
+                        confidence,
+                        features
+                    )
+                except Exception as e:
+                    st.warning(f"Couldn't generate detailed explanation: {str(e)}")
+                    explanation = get_fallback_explanation(prediction[0], features)
+                
+                with st.expander("📖 Explanation", expanded=True):
+                    st.markdown(f"""
+                    **Analysis Summary**  
+                    {explanation}
+                    """)
+            
         except Exception as e:
             st.error(f"Analysis Error: {str(e)}")
 
@@ -76,7 +100,8 @@ elif input_method == "Upload Image":
         
         # Extract text if not already done
         if st.session_state.extracted_text == "":
-            st.session_state.extracted_text = process_file_upload(uploaded_file)
+            with st.spinner("Extracting text from image..."):
+                st.session_state.extracted_text = process_file_upload(uploaded_file)
     
     # Display text area for editing OCR results or manual entry
     if uploaded_file is not None:
@@ -115,7 +140,8 @@ elif input_method == "Camera Capture":
     
     # Process the camera file
     if camera_file is not None and st.session_state.extracted_text == "":
-        st.session_state.extracted_text = process_camera_capture(camera_file)
+        with st.spinner("Extracting text from image..."):
+            st.session_state.extracted_text = process_camera_capture(camera_file)
     
     # Display text area for editing OCR results or manual entry
     if camera_file is not None:
