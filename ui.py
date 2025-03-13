@@ -6,13 +6,13 @@ from paddleocr import PaddleOCR
 from PIL import Image
 import cv2
 
-# Initialize session state for persistent storage
-if 'email_text' not in st.session_state:
-    st.session_state.email_text = ""
-if 'ocr_complete' not in st.session_state:
-    st.session_state.ocr_complete = False
-if 'image_processed' not in st.session_state:
-    st.session_state.image_processed = False
+# Initialize minimal session state for file tracking
+if 'uploaded_file_processed' not in st.session_state:
+    st.session_state.uploaded_file_processed = False
+if 'camera_file_processed' not in st.session_state:
+    st.session_state.camera_file_processed = False
+if 'extracted_text' not in st.session_state:
+    st.session_state.extracted_text = ""
 
 # Load OCR model only once
 @st.cache_resource
@@ -55,138 +55,196 @@ def process_image_with_ocr(image):
         st.error(f"OCR Error: {str(e)}")
         return ""
 
+# Function to process uploaded file
+def process_uploaded_file():
+    if st.session_state.uploaded_file is not None and not st.session_state.uploaded_file_processed:
+        try:
+            # Process image with OCR
+            image = Image.open(st.session_state.uploaded_file)
+            with st.spinner("Extracting text from image..."):
+                st.session_state.extracted_text = process_image_with_ocr(image)
+            st.session_state.uploaded_file_processed = True
+        except Exception as e:
+            st.error(f"Error processing uploaded file: {str(e)}")
+            st.session_state.extracted_text = ""
+
+# Function to process camera file
+def process_camera_file():
+    if st.session_state.camera_file is not None and not st.session_state.camera_file_processed:
+        try:
+            # Process image with OCR
+            image = Image.open(st.session_state.camera_file)
+            with st.spinner("Extracting text from camera image..."):
+                st.session_state.extracted_text = process_image_with_ocr(image)
+            st.session_state.camera_file_processed = True
+        except Exception as e:
+            st.error(f"Error processing camera file: {str(e)}")
+            st.session_state.extracted_text = ""
+
 # Streamlit UI
 st.title("Salain - Malicious Email Detector")
 st.markdown("Protect yourself from malicious emails 🇵🇭")
 
-# Input Section
-input_type = st.radio("Choose input type:", ("Text", "Image"), 
-                      on_change=lambda: setattr(st.session_state, 'image_processed', False))
+# Input Method Selection
+input_method = st.radio(
+    "Choose input method:",
+    ["Text Input", "Upload Image", "Camera Capture"],
+    horizontal=True,
+    on_change=lambda: (
+        setattr(st.session_state, 'uploaded_file_processed', False),
+        setattr(st.session_state, 'camera_file_processed', False),
+        setattr(st.session_state, 'extracted_text', "")
+    )
+)
 
-if input_type == "Text":
-    # Direct text input mode
-    text_input = st.text_area("Paste email content here:", height=200)
-    st.session_state.email_text = text_input
-    st.session_state.ocr_complete = True
-else:
-    # Image input mode
-    upload_tab, camera_tab = st.tabs(["Upload Image", "Camera Capture"])
+# Display the appropriate input method
+if input_method == "Text Input":
+    # Direct text input
+    text_input_value = st.text_area(
+        "Paste email content here:",
+        height=200,
+        key="direct_text_input"
+    )
     
-    image_file = None
+    # Add analyze button directly under this input
+    text_analyze_button = st.button("Analyze Email", key="text_analyze_button")
     
-    with upload_tab:
-        uploaded_file = st.file_uploader("Upload email screenshot:", 
-                                        type=["png", "jpg", "jpeg"],
-                                        on_change=lambda: setattr(st.session_state, 'image_processed', False))
-        if uploaded_file:
-            image_file = uploaded_file
+    # Analysis logic for text input
+    if text_analyze_button:
+        if text_input_value.strip():
+            with st.spinner("Analyzing email content..."):
+                try:
+                    prediction, confidence = classify_email(text_input_value)
+                    
+                    # Display results
+                    if prediction[0] == 1:
+                        st.error(f"⚠️ Malicious Detected (Confidence: {confidence:.2%})")
+                        st.write("Common red flags found:")
+                        st.json(extract_features(text_input_value))
+                    else:
+                        st.success(f"✅ Safe Email (Confidence: {1-confidence:.2%})")
+                except Exception as e:
+                    st.error(f"Analysis Error: {str(e)}")
+        else:
+            st.warning("Please enter email text before analyzing")
+
+elif input_method == "Upload Image":
+    # Image upload with callback
+    uploaded_file = st.file_uploader(
+        "Upload email screenshot:",
+        type=["png", "jpg", "jpeg"],
+        key="uploaded_file",
+        on_change=lambda: setattr(st.session_state, 'uploaded_file_processed', False)
+    )
     
-    with camera_tab:
-        camera_file = st.camera_input("Take a photo of the email",
-                                     on_change=lambda: setattr(st.session_state, 'image_processed', False))
-        if camera_file:
-            image_file = camera_file
-    
-    # Process the image if one is provided from either source
-    if image_file and not st.session_state.image_processed:
-        try:
-            col1, col2 = st.columns([1, 2])
-            
-            with col1:
-                # Display image
-                image = Image.open(image_file)
-                st.image(image, caption="Email Image", use_container_width=True)
-            
-            with col2:
-                # Process image and display extracted text
-                with st.spinner("Extracting text from image..."):
-                    extracted_text = process_image_with_ocr(image)
-                    # Set the session state variable
-                    st.session_state.email_text = extracted_text
-                    st.session_state.ocr_complete = True
-                    st.session_state.image_processed = True
-                
-                st.subheader("Extracted Text:")
-                if extracted_text:
-                    # Make the text area editable for user corrections
-                    edited_text = st.text_area(
-                        "Review and edit the extracted text if needed:",
-                        value=extracted_text,
-                        height=200,
-                        key="ocr_edit_area"
-                    )
-                    # Update the session state with edited text
-                    st.session_state.email_text = edited_text
-                    st.info("You can edit the text above to correct any OCR mistakes before analysis.")
-                else:
-                    st.warning("No text found in the image. Try adjusting the image or using a clearer photo.")
-                    # Provide an empty text area for manual entry
-                    manual_text = st.text_area(
-                        "Enter the email text manually:",
-                        value="",
-                        height=200,
-                        key="manual_text_area"
-                    )
-                    st.session_state.email_text = manual_text
-        except Exception as e:
-            st.error(f"Error processing image: {str(e)}")
-            st.session_state.ocr_complete = False
-    elif image_file and st.session_state.image_processed:
-        # Display the previously processed image and text
-        col1, col2 = st.columns([1, 2])
+    # Process the uploaded file if needed
+    if uploaded_file is not None:
+        process_uploaded_file()
         
-        with col1:
-            # Display image
-            image = Image.open(image_file)
-            st.image(image, caption="Email Image", use_container_width=True)
-        
-        with col2:
-            st.subheader("Extracted Text:")
-            # Make the text area editable for user corrections
-            edited_text = st.text_area(
-                "Review and edit the extracted text if needed:",
-                value=st.session_state.email_text,
+        # Display the image
+        image = Image.open(uploaded_file)
+        st.image(image, caption="Uploaded Email Image", use_container_width=True)
+    
+    # Display text area for editing OCR results or manual entry
+    if uploaded_file is not None:
+        if st.session_state.extracted_text:
+            upload_text_value = st.text_area(
+                "Extracted text (edit if needed):",
+                value=st.session_state.extracted_text,
                 height=200,
-                key="ocr_edit_area_cached"
+                key="upload_extracted_text"
             )
-            # Update the session state with edited text
-            st.session_state.email_text = edited_text
             st.info("You can edit the text above to correct any OCR mistakes before analysis.")
-
-# Add a separator
-st.markdown("---")
-
-# Analysis Section
-col1, col2 = st.columns([1, 2])
-
-with col1:
-    # Prediction Logic
-    analyze_button = st.button("Analyze Email")
-
-with col2:
-    # Display current text to be analyzed
-    if st.session_state.email_text:
-        st.text_area(
-            "Text to be analyzed:",
-            value=st.session_state.email_text,
-            height=100,
-            disabled=True
-        )
-
-if analyze_button:
-    if st.session_state.email_text.strip():
-        with st.spinner("Analyzing email content..."):
-            try:
-                prediction, confidence = classify_email(st.session_state.email_text)
-                
-                # Display results
-                if prediction[0] == 1:
-                    st.error(f"⚠️ Malicious Detected (Confidence: {confidence:.2%})")
-                    st.write("Common red flags found:")
-                    st.json(extract_features(st.session_state.email_text))
-                else:
-                    st.success(f"✅ Safe Email (Confidence: {1-confidence:.2%})")
-            except Exception as e:
-                st.error(f"Analysis Error: {str(e)}")
+        else:
+            st.warning("No text found in the image. Try adjusting the image or using a clearer photo.")
+            upload_text_value = st.text_area(
+                "Enter the email text manually:",
+                height=200,
+                key="upload_manual_text"
+            )
     else:
-        st.warning("Please enter email text or upload an image")
+        upload_text_value = st.text_area(
+            "Enter email text manually:",
+            height=200,
+            key="upload_no_file_text"
+        )
+    
+    # Add analyze button for upload
+    upload_analyze_button = st.button("Analyze Email", key="upload_analyze_button")
+    
+    # Analysis logic for uploaded image
+    if upload_analyze_button:
+        if upload_text_value.strip():
+            with st.spinner("Analyzing email content..."):
+                try:
+                    prediction, confidence = classify_email(upload_text_value)
+                    
+                    # Display results
+                    if prediction[0] == 1:
+                        st.error(f"⚠️ Malicious Detected (Confidence: {confidence:.2%})")
+                        st.write("Common red flags found:")
+                        st.json(extract_features(upload_text_value))
+                    else:
+                        st.success(f"✅ Safe Email (Confidence: {1-confidence:.2%})")
+                except Exception as e:
+                    st.error(f"Analysis Error: {str(e)}")
+        else:
+            st.warning("Please enter text to analyze")
+
+elif input_method == "Camera Capture":
+    # Camera capture with callback
+    camera_file = st.camera_input(
+        "Take a photo of the email",
+        key="camera_file",
+        on_change=lambda: setattr(st.session_state, 'camera_file_processed', False)
+    )
+    
+    # Process the camera file if needed
+    if camera_file is not None:
+        process_camera_file()
+    
+    # Display text area for editing OCR results or manual entry
+    if camera_file is not None:
+        if st.session_state.extracted_text:
+            camera_text_value = st.text_area(
+                "Extracted text (edit if needed):",
+                value=st.session_state.extracted_text,
+                height=200,
+                key="camera_extracted_text"
+            )
+            st.info("You can edit the text above to correct any OCR mistakes before analysis.")
+        else:
+            st.warning("No text found in the image. Try adjusting the camera or using a clearer photo.")
+            camera_text_value = st.text_area(
+                "Enter the email text manually:",
+                height=200,
+                key="camera_manual_text"
+            )
+    else:
+        camera_text_value = st.text_area(
+            "Enter email text manually:",
+            height=200,
+            key="camera_no_image_text"
+        )
+    
+    # Add analyze button for camera
+    camera_analyze_button = st.button("Analyze Email", key="camera_analyze_button")
+    
+    # Analysis logic for camera image
+    if camera_analyze_button:
+        if camera_text_value.strip():
+            with st.spinner("Analyzing email content..."):
+                try:
+                    prediction, confidence = classify_email(camera_text_value)
+                    
+                    # Display results
+                    if prediction[0] == 1:
+                        st.error(f"⚠️ Malicious Detected (Confidence: {confidence:.2%})")
+                        st.write("Common red flags found:")
+                        st.json(extract_features(camera_text_value))
+                    else:
+                        st.success(f"✅ Safe Email (Confidence: {1-confidence:.2%})")
+                except Exception as e:
+                    st.error(f"Analysis Error: {str(e)}")
+        else:
+            st.warning("Please enter text to analyze")
