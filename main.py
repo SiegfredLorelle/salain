@@ -1,5 +1,5 @@
 from test import synthetic_labeld_emails
-from classical import classify_email
+from scripts.classical import classify_email
 import random
 
 random_email = random.choice(list(synthetic_labeld_emails.keys()))
