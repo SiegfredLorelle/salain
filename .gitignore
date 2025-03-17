@@ -9,4 +9,4 @@ data/*
 models/*
 !models/README.md
 
-.streamlit
+.streamlit/secrets.toml
